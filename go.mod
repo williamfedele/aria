@@ -1,4 +1,4 @@
-module github.com/williamfedele/tempo
+module github.com/williamfedele/chime
 
 go 1.22.2
 

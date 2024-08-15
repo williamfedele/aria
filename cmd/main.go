@@ -4,12 +4,14 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/williamfedele/tempo/internal/audio"
+	"github.com/williamfedele/chime/internal/audio"
 )
 
 type model struct {
-	tracks   []string
-	selected int
+	tracks       []audio.Track
+	selected     int
+	audioControl chan string
+	audioFeed    chan string
 }
 
 func (m model) Init() tea.Cmd {
@@ -23,7 +25,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "enter":
-			audio.PlayAudio(m.tracks[m.selected])
+			m.audioFeed <- m.tracks[m.selected].Path
+			m.audioControl <- "play"
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
@@ -41,9 +44,9 @@ func (m model) View() string {
 	s := "Select track to play:\n\n"
 	for i, track := range m.tracks {
 		if i == m.selected {
-			s += fmt.Sprintf("> %s\n", track)
+			s += fmt.Sprintf("> %s\n", track.Title)
 		} else {
-			s += fmt.Sprintf("  %s\n", track)
+			s += fmt.Sprintf("  %s\n", track.Title)
 		}
 	}
 	s += "\nPress enter to play, q to quit."
@@ -54,12 +57,15 @@ func main() {
 
 	// Load music library
 	// TODO: Allow user to specify their music library path through a config file
-	tracks, err := audio.LoadLibrary("../music")
+	tracks, err := audio.LoadLibrary("/Users/will/Music/library")
 	if err != nil {
 		panic(err)
 	}
 
-	p := tea.NewProgram(model{tracks: tracks, selected: 0})
+	m := model{tracks: tracks, selected: 0, audioControl: make(chan string), audioFeed: make(chan string)}
+	go audio.PlayAudio(m.audioControl, m.audioFeed)
+
+	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		panic(err)
 	}
