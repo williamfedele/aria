@@ -44,6 +44,4 @@ func PlayAudio(audioControl <-chan string, audioFeed <-chan string) error {
 			}
 		}
 	}
-
-	return nil
 }

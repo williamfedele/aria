@@ -5,12 +5,6 @@ import (
 	"path/filepath"
 )
 
-type Track struct {
-	Title  string
-	Path   string
-	Format string
-}
-
 func LoadLibrary(libraryDir string) ([]Track, error) {
 	files, err := os.ReadDir(libraryDir)
 	if err != nil {
@@ -42,7 +36,7 @@ func LoadLibrary(libraryDir string) ([]Track, error) {
 				if err != nil {
 					return err
 				}
-				tracks = append(tracks, Track{Title: d.Name(), Path: filepath.Join(libraryDir, relativePath), Format: "flac"})
+				tracks = append(tracks, Track{TTitle: d.Name(), Path: filepath.Join(libraryDir, relativePath), Format: "flac"})
 				return nil
 			})
 			if err != nil {
@@ -52,7 +46,7 @@ func LoadLibrary(libraryDir string) ([]Track, error) {
 			if fileExt := filepath.Ext(file.Name()); fileExt != ".flac" {
 				continue
 			}
-			tracks = append(tracks, Track{Title: file.Name(), Path: filepath.Join(libraryDir, file.Name()), Format: "flac"})
+			tracks = append(tracks, Track{TTitle: file.Name(), Path: filepath.Join(libraryDir, file.Name()), Format: "flac"})
 		}
 	}
 

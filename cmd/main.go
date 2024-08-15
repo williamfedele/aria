@@ -1,17 +1,18 @@
 package main
 
 import (
-	"fmt"
-
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/williamfedele/chime/internal/audio"
 )
 
+var style = lipgloss.NewStyle().Margin(1, 2)
+
 type model struct {
-	tracks       []audio.Track
-	selected     int
-	audioControl chan string
-	audioFeed    chan string
+	list         list.Model
+	trackControl chan string
+	trackFeed    chan string
 }
 
 func (m model) Init() tea.Cmd {
@@ -22,35 +23,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "ctrl+c":
 			return m, tea.Quit
 		case "enter":
-			m.audioFeed <- m.tracks[m.selected].Path
-			m.audioControl <- "play"
-		case "up", "k":
-			if m.selected > 0 {
-				m.selected--
-			}
-		case "down", "j":
-			if m.selected < len(m.tracks)-1 {
-				m.selected++
+			if track, ok := m.list.SelectedItem().(audio.Track); ok {
+				m.trackFeed <- track.Path
+				m.trackControl <- "play"
 			}
 		}
+	case tea.WindowSizeMsg:
+		h, v := style.GetFrameSize()
+		m.list.SetSize(msg.Width-h, msg.Height-v)
 	}
-	return m, nil
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
 }
 
 func (m model) View() string {
-	s := "Select track to play:\n\n"
-	for i, track := range m.tracks {
-		if i == m.selected {
-			s += fmt.Sprintf("> %s\n", track.Title)
-		} else {
-			s += fmt.Sprintf("  %s\n", track.Title)
-		}
-	}
-	s += "\nPress enter to play, q to quit."
-	return s
+	return style.Render(m.list.View())
 }
 
 func main() {
@@ -62,10 +54,20 @@ func main() {
 		panic(err)
 	}
 
-	m := model{tracks: tracks, selected: 0, audioControl: make(chan string), audioFeed: make(chan string)}
-	go audio.PlayAudio(m.audioControl, m.audioFeed)
+	var items []list.Item
+	for _, track := range tracks {
+		items = append(items, track)
+	}
 
-	p := tea.NewProgram(m)
+	m := model{
+		list:         list.New(items, list.NewDefaultDelegate(), 0, 0),
+		trackControl: make(chan string),
+		trackFeed:    make(chan string),
+	}
+	m.list.Title = "Music Library"
+	go audio.PlayAudio(m.trackControl, m.trackFeed)
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		panic(err)
 	}
