@@ -9,7 +9,7 @@ import (
 	"github.com/gopxl/beep/v2/speaker"
 )
 
-func PlayAudio(trackControl <-chan string, trackFeed <-chan string) error {
+func PlayAudio(trackControl <-chan Control, trackFeed <-chan string) error {
 
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
@@ -35,12 +35,14 @@ func PlayAudio(trackControl <-chan string, trackFeed <-chan string) error {
 			speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 		case cmd := <-trackControl:
 			switch cmd {
-			case "play":
+			case Play:
 				speaker.Play(streamer)
-			case "pause":
+			case Pause:
 				speaker.Lock()
 				speaker.Unlock()
-
+			case Stop:
+				speaker.Clear()
+				streamer.Seek(0)
 			}
 		}
 	}

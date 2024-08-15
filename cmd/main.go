@@ -15,9 +15,11 @@ func main() {
 		panic(err)
 	}
 
-	m := ui.NewModel(tracks)
-	m.List.Title = "Music Library"
-	go audio.PlayAudio(m.TrackControl, m.TrackFeed)
+	trackControl := make(chan audio.Control)
+	trackFeed := make(chan string)
+
+	m := ui.NewTrackListModel(tracks, trackControl, trackFeed)
+	go audio.PlayAudio(trackControl, trackFeed)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
