@@ -9,14 +9,14 @@ import (
 	"github.com/gopxl/beep/v2/speaker"
 )
 
-func PlayAudio(audioControl <-chan string, audioFeed <-chan string) error {
+func PlayAudio(trackControl <-chan string, trackFeed <-chan string) error {
 
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
 
 	for {
 		select {
-		case path := <-audioFeed:
+		case path := <-trackFeed:
 
 			if streamer != nil {
 				speaker.Clear()
@@ -33,7 +33,7 @@ func PlayAudio(audioControl <-chan string, audioFeed <-chan string) error {
 			defer streamer.Close()
 
 			speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-		case cmd := <-audioControl:
+		case cmd := <-trackControl:
 			switch cmd {
 			case "play":
 				speaker.Play(streamer)
