@@ -9,7 +9,51 @@ import (
 	"github.com/gopxl/beep/v2/speaker"
 )
 
-func PlayAudio(trackControl <-chan Control, trackFeed <-chan string) error {
+type Control int
+
+const (
+	Play Control = iota
+	Pause
+	Stop
+)
+
+type Player struct {
+	Control chan Control
+	Feed    chan string
+}
+
+func NewPlayer() *Player {
+	player := &Player{
+		Control: make(chan Control),
+		Feed:    make(chan string),
+	}
+
+	go Worker(player.Control, player.Feed)
+	return player
+}
+
+func (p *Player) Play() {
+	p.Control <- Play
+}
+
+func (p *Player) Pause() {
+	p.Control <- Pause
+}
+
+func (p *Player) Stop() {
+	p.Control <- Stop
+}
+
+func (p *Player) Load(path string) {
+	p.Feed <- path
+}
+
+func (p *Player) Close() {
+	close(p.Control)
+	close(p.Feed)
+}
+
+func Worker(trackControl <-chan Control, trackFeed <-chan string) error {
 
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
