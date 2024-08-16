@@ -54,7 +54,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Cursor--
 			}
 		case "enter":
-			m.Player.Load(m.Library.Tracks[m.Cursor].Path)
+			m.Player.Load(m.Library.Tracks[m.Cursor])
 			m.Player.Play()
 		}
 	}
@@ -68,9 +68,9 @@ func (m Model) View() string {
 
 	for i, track := range m.Library.Tracks {
 		if i == m.Cursor {
-			fmt.Fprintf(&b, "%s\n", selectedItemStyle.Render(track.Artist+" "+track.Title))
+			fmt.Fprintf(&b, "%s\n", selectedItemStyle.Render(track.String()))
 		} else {
-			fmt.Fprintf(&b, "%s\n", itemStyle.Render(track.Artist+" "+track.Title))
+			fmt.Fprintf(&b, "%s\n", itemStyle.Render(track.String()))
 		}
 	}
 

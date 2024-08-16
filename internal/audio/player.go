@@ -1,12 +1,16 @@
 package audio
 
 import (
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
+	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/speaker"
+	"github.com/gopxl/beep/v2/vorbis"
+	"github.com/gopxl/beep/v2/wav"
 )
 
 type Control int
@@ -17,18 +21,19 @@ const (
 	Stop
 )
 
+// Player holds the control and feed channels to communicate with the DJ
 type Player struct {
 	Control chan Control
-	Feed    chan string
+	Feed    chan Track
 }
 
 func NewPlayer() *Player {
 	player := &Player{
 		Control: make(chan Control),
-		Feed:    make(chan string),
+		Feed:    make(chan Track),
 	}
 
-	go Worker(player.Control, player.Feed)
+	go DJ(player.Control, player.Feed)
 	return player
 }
 
@@ -44,8 +49,8 @@ func (p *Player) Stop() {
 	p.Control <- Stop
 }
 
-func (p *Player) Load(path string) {
-	p.Feed <- path
+func (p *Player) Load(track Track) {
+	p.Feed <- track
 }
 
 func (p *Player) Close() {
@@ -53,24 +58,35 @@ func (p *Player) Close() {
 	close(p.Feed)
 }
 
-func Worker(trackControl <-chan Control, trackFeed <-chan string) error {
+func DJ(trackControl <-chan Control, trackFeed <-chan Track) error {
 
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
 
 	for {
 		select {
-		case path := <-trackFeed:
+		case track := <-trackFeed:
 
 			if streamer != nil {
 				speaker.Clear()
 			}
 
-			f, err := os.Open(path)
+			f, err := os.Open(track.Path)
 			if err != nil {
 				return err
 			}
-			streamer, format, err = flac.Decode(f)
+			switch track.Format {
+			case FLAC:
+				streamer, format, err = flac.Decode(f)
+			case MP3:
+				streamer, format, err = mp3.Decode(f)
+			case WAV:
+				streamer, format, err = wav.Decode(f)
+			case OGG:
+				streamer, format, err = vorbis.Decode(f)
+			default:
+				err = fmt.Errorf("unsupported format: %s", track.Path)
+			}
 			if err != nil {
 				return err
 			}

@@ -1,8 +1,10 @@
 package audio
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Library struct {
@@ -10,57 +12,98 @@ type Library struct {
 }
 
 type Track struct {
-	Title  string
 	Artist string
+	Album  string
+	Title  string
 	Path   string
-	Format string
+	Format AudioFormat
 }
 
+func (t Track) String() string {
+	return fmt.Sprintf("%s / %s / %s", t.Artist, t.Album, t.Title)
+}
+
+type AudioFormat int
+
+const (
+	FLAC AudioFormat = iota
+	MP3
+	WAV
+	OGG
+)
+
 func NewLibrary(libraryDir string) (*Library, error) {
-	files, err := os.ReadDir(libraryDir)
+
+	// TODO: Add nested directory UI visual
+	// TODO: Add support for metadata displayed in the UI
+	// TODO: Add support for album art
+	var tracks []Track
+	err := filepath.WalkDir(libraryDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			track, err := extractTrack(libraryDir, path)
+			if err != nil {
+				return nil
+			}
+			tracks = append(tracks, track)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: Add nested directory UI visual
-	// TODO: Add support for more audio formats
-	// TODO: Add support for metadata displayed in the UI
-	// TODO: Add support for album art
-
-	var tracks []Track
-	for _, file := range files {
-
-		fileInfo, err := file.Info()
-		if err != nil {
-			return nil, err
-		}
-
-		if fileInfo.IsDir() {
-			err := filepath.WalkDir(filepath.Join(libraryDir, file.Name()), func(path string, d os.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if fileExt := filepath.Ext(d.Name()); fileExt != ".flac" {
-					return nil
-				}
-				relativePath, err := filepath.Rel(libraryDir, path)
-				if err != nil {
-					return err
-				}
-				tracks = append(tracks, Track{Title: d.Name(), Path: filepath.Join(libraryDir, relativePath), Format: "flac"})
-				return nil
-			})
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			if fileExt := filepath.Ext(file.Name()); fileExt != ".flac" {
-				continue
-			}
-			tracks = append(tracks, Track{Title: file.Name(), Path: filepath.Join(libraryDir, file.Name()), Format: "flac"})
-		}
-	}
-
 	return &Library{Tracks: tracks}, nil
 
+}
+
+// Parses the path to extract the artist, album, title, and audio format
+// The path should be in the format artist/album/title.format
+// If the path is not in this format, the artist and album will be set to "unknown"
+// The audio format is determined by the file extension
+func extractTrack(rootDir string, fullPath string) (Track, error) {
+
+	// Extract path relative to library root
+	localPath := strings.TrimPrefix(fullPath, rootDir+"/")
+
+	// There should be 3 levels: artist/album/track in that order
+	levels := strings.Split(localPath, "/")
+
+	// Extract audio format
+	format := extractAudioFormat(localPath)
+	if format == -1 {
+		return Track{}, fmt.Errorf("unsupported format: %s", fullPath)
+	}
+
+	// If there are less than 3 dir levels, artist and album are set to "unknown" as a fallback
+	if len(levels) < 3 {
+		return Track{Artist: "unknown", Album: "unknown", Title: levels[len(levels)-1], Path: fullPath, Format: format}, nil
+	}
+
+	// Otherwise, set artist and title as the library hierarchy dictates
+	return Track{
+		Artist: levels[len(levels)-3],
+		Album:  levels[len(levels)-2],
+		Title:  levels[len(levels)-1],
+		Path:   fullPath,
+		Format: format,
+	}, nil
+}
+
+// Determines the audio format based on the file extension
+func extractAudioFormat(path string) AudioFormat {
+	switch filepath.Ext(path) {
+	case ".flac":
+		return FLAC
+	case ".mp3":
+		return MP3
+	case ".wav":
+		return WAV
+	case ".ogg":
+		return OGG
+	default:
+		return -1
+	}
 }
