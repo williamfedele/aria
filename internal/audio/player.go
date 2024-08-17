@@ -71,11 +71,11 @@ func DJ(trackControl <-chan Control, trackFeed <-chan Track) error {
 				speaker.Clear()
 			}
 
-			f, err := os.Open(track.Path)
+			f, err := os.Open(track.Path())
 			if err != nil {
 				return err
 			}
-			switch track.Format {
+			switch track.Format() {
 			case FLAC:
 				streamer, format, err = flac.Decode(f)
 			case MP3:
@@ -85,7 +85,7 @@ func DJ(trackControl <-chan Control, trackFeed <-chan Track) error {
 			case OGG:
 				streamer, format, err = vorbis.Decode(f)
 			default:
-				err = fmt.Errorf("unsupported format: %s", track.Path)
+				err = fmt.Errorf("unsupported format: %s", track.Path())
 			}
 			if err != nil {
 				return err

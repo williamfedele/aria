@@ -1,9 +1,8 @@
 package ui
 
 import (
-	"fmt"
-	"strings"
-
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/williamfedele/chime/internal/audio"
@@ -11,15 +10,20 @@ import (
 )
 
 var (
-	titleStyle        = lipgloss.NewStyle().MarginLeft(4)
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(2)
-	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(4).Foreground(lipgloss.Color("3"))
+	appStyle   = lipgloss.NewStyle().Padding(1, 2)
+	titleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#222222")).
+			Background(lipgloss.Color("3")).
+			Padding(0, 2)
+	statusMessageStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("3")).
+				Render
 )
 
 type Model struct {
 	Player  *audio.Player
 	Library *audio.Library
-	Cursor  int
+	keys    keyMap
 }
 
 func InitialModel(config config.Config) Model {
@@ -29,10 +33,26 @@ func InitialModel(config config.Config) Model {
 		panic(err)
 	}
 
-	return Model{
+	m := Model{
 		Player:  audio.NewPlayer(),
 		Library: library,
+		keys:    keys,
 	}
+
+	d := list.NewDefaultDelegate()
+	help := []key.Binding{keys.TogglePlayback}
+	d.ShortHelpFunc = func() []key.Binding {
+		return help
+	}
+	d.FullHelpFunc = func() [][]key.Binding {
+		return [][]key.Binding{help}
+	}
+
+	library.Tracks.SetDelegate(d)
+
+	library.Tracks.Styles.Title = titleStyle
+
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -40,39 +60,26 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		h, v := appStyle.GetFrameSize()
+		m.Library.Tracks.SetSize(msg.Width-h-1, msg.Height-v-1)
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "j", "down":
-			if m.Cursor < len(m.Library.Tracks)-1 {
-				m.Cursor++
-			}
-		case "k", "up":
-			if m.Cursor > 0 {
-				m.Cursor--
-			}
-		case "enter":
-			m.Player.Load(m.Library.Tracks[m.Cursor])
+		switch {
+		case key.Matches(msg, m.keys.TogglePlayback):
+			track := m.Library.Tracks.SelectedItem().(audio.Track)
+			m.Library.Tracks.NewStatusMessage(statusMessageStyle("> " + track.Title()))
+			m.Player.Load(track)
 			m.Player.Play()
 		}
 	}
-	return m, nil
+
+	var cmd tea.Cmd
+	m.Library.Tracks, cmd = m.Library.Tracks.Update(msg)
+	return m, cmd
 }
 
 func (m Model) View() string {
-	var b strings.Builder
-
-	fmt.Fprintf(&b, "%s\n\n", titleStyle.Render("Tracks"))
-
-	for i, track := range m.Library.Tracks {
-		if i == m.Cursor {
-			fmt.Fprintf(&b, "%s\n", selectedItemStyle.Render(track.String()))
-		} else {
-			fmt.Fprintf(&b, "%s\n", itemStyle.Render(track.String()))
-		}
-	}
-
-	return b.String()
+	return appStyle.Render(m.Library.Tracks.View())
 }

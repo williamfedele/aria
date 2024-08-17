@@ -5,22 +5,36 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/charmbracelet/bubbles/list"
 )
 
 type Library struct {
-	Tracks []Track
+	Tracks list.Model
 }
 
 type Track struct {
-	Artist string
-	Album  string
-	Title  string
-	Path   string
-	Format AudioFormat
+	artist string
+	album  string
+	title  string
+	path   string
+	format AudioFormat
+}
+
+func (t Track) Artist() string      { return t.artist }
+func (t Track) Album() string       { return t.album }
+func (t Track) Title() string       { return t.title }
+func (t Track) Path() string        { return t.path }
+func (t Track) Format() AudioFormat { return t.format }
+func (t Track) Description() string {
+	return fmt.Sprintf("%s / %s / %s", t.Artist(), t.Album(), t.Title())
+}
+func (t Track) FilterValue() string {
+	return t.Title()
 }
 
 func (t Track) String() string {
-	return fmt.Sprintf("%s / %s / %s", t.Artist, t.Album, t.Title)
+	return fmt.Sprintf("%s / %s / %s", t.Artist(), t.Album(), t.Title())
 }
 
 type AudioFormat int
@@ -55,7 +69,15 @@ func NewLibrary(libraryDir string) (*Library, error) {
 		return nil, err
 	}
 
-	return &Library{Tracks: tracks}, nil
+	var items []list.Item
+	for _, track := range tracks {
+		items = append(items, track)
+	}
+
+	list := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	list.Title = "Library"
+
+	return &Library{Tracks: list}, nil
 
 }
 
@@ -79,16 +101,16 @@ func extractTrack(rootDir string, fullPath string) (Track, error) {
 
 	// If there are less than 3 dir levels, artist and album are set to "unknown" as a fallback
 	if len(levels) < 3 {
-		return Track{Artist: "unknown", Album: "unknown", Title: levels[len(levels)-1], Path: fullPath, Format: format}, nil
+		return Track{artist: "unknown", album: "unknown", title: levels[len(levels)-1], path: fullPath, format: format}, nil
 	}
 
 	// Otherwise, set artist and title as the library hierarchy dictates
 	return Track{
-		Artist: levels[len(levels)-3],
-		Album:  levels[len(levels)-2],
-		Title:  levels[len(levels)-1],
-		Path:   fullPath,
-		Format: format,
+		artist: levels[len(levels)-3],
+		album:  levels[len(levels)-2],
+		title:  levels[len(levels)-1],
+		path:   fullPath,
+		format: format,
 	}, nil
 }
 
