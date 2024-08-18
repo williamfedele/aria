@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"math/rand"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -39,18 +41,20 @@ func InitialModel(config config.Config) Model {
 		keys:    keys,
 	}
 
+	// Setup custom keybinds
 	d := list.NewDefaultDelegate()
-	help := []key.Binding{keys.TogglePlayback}
+
 	d.ShortHelpFunc = func() []key.Binding {
-		return help
+		return []key.Binding{keys.Play}
 	}
 	d.FullHelpFunc = func() [][]key.Binding {
-		return [][]key.Binding{help}
+		return [][]key.Binding{{keys.Play, keys.TogglePlayback, keys.Stop, keys.Shuffle}}
 	}
 
 	library.Tracks.SetDelegate(d)
 
 	library.Tracks.Styles.Title = titleStyle
+	m.Library.Tracks.NewStatusMessage(statusMessageStyle("Nothing playing"))
 
 	return m
 }
@@ -67,12 +71,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Library.Tracks.SetSize(msg.Width-h-1, msg.Height-v-1)
 	case tea.KeyMsg:
 		switch {
-		case key.Matches(msg, m.keys.TogglePlayback):
+		case key.Matches(msg, m.keys.Play):
 			track := m.Library.Tracks.SelectedItem().(audio.Track)
-			m.Library.Tracks.NewStatusMessage(statusMessageStyle("> " + track.Title()))
+			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
 			m.Player.Load(track)
 			m.Player.Play()
+		case key.Matches(msg, m.keys.Shuffle):
+			track := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
+			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
+			m.Player.Load(track)
+			m.Player.Play()
+		case key.Matches(msg, keys.TogglePlayback):
+			// TODO: need to receive event from the player in order to update the status message here
+			m.Player.TogglePlayback()
+		case key.Matches(msg, keys.Stop):
+			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Nothing playing"))
+			m.Player.Stop()
 		}
+
 	}
 
 	var cmd tea.Cmd

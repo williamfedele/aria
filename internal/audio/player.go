@@ -17,7 +17,7 @@ type Control int
 
 const (
 	Play Control = iota
-	Pause
+	TogglePlayback
 	Stop
 )
 
@@ -25,15 +25,17 @@ const (
 type Player struct {
 	Control chan Control
 	Feed    chan Track
+	ctrl    *beep.Ctrl
 }
 
 func NewPlayer() *Player {
 	player := &Player{
 		Control: make(chan Control),
 		Feed:    make(chan Track),
+		ctrl:    nil,
 	}
 
-	go DJ(player.Control, player.Feed)
+	go DJ(player)
 	return player
 }
 
@@ -41,8 +43,8 @@ func (p *Player) Play() {
 	p.Control <- Play
 }
 
-func (p *Player) Pause() {
-	p.Control <- Pause
+func (p *Player) TogglePlayback() {
+	p.Control <- TogglePlayback
 }
 
 func (p *Player) Stop() {
@@ -58,14 +60,14 @@ func (p *Player) Close() {
 	close(p.Feed)
 }
 
-func DJ(trackControl <-chan Control, trackFeed <-chan Track) error {
+func DJ(player *Player) error {
 
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
 
 	for {
 		select {
-		case track := <-trackFeed:
+		case track := <-player.Feed:
 
 			if streamer != nil {
 				speaker.Clear()
@@ -93,12 +95,17 @@ func DJ(trackControl <-chan Control, trackFeed <-chan Track) error {
 			defer streamer.Close()
 
 			speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-		case cmd := <-trackControl:
+			player.ctrl = &beep.Ctrl{Streamer: streamer}
+		case cmd := <-player.Control:
 			switch cmd {
 			case Play:
-				speaker.Play(streamer)
-			case Pause:
+				speaker.Play(player.ctrl)
 				speaker.Lock()
+				player.ctrl.Paused = false
+				speaker.Unlock()
+			case TogglePlayback:
+				speaker.Lock()
+				player.ctrl.Paused = !player.ctrl.Paused
 				speaker.Unlock()
 			case Stop:
 				speaker.Clear()
