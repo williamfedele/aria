@@ -73,14 +73,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.Play):
 			track := m.Library.Tracks.SelectedItem().(audio.Track)
+			// TODO maybe use Tracks.Title as the now playing area and status for updates like "skipped", "queued" etc.
 			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
-			m.Player.Load(track)
-			m.Player.Play()
+			m.Player.Enqueue(track)
 		case key.Matches(msg, m.keys.Shuffle):
+			// TODO: shuffling a second time should reset the queue
+			// TODO: shuffle all tracks and enqueue them
+			//track := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
 			track := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
+			track2 := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
 			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
-			m.Player.Load(track)
-			m.Player.Play()
+			m.Player.Enqueue(track)
+			m.Player.Enqueue(track2)
 		case key.Matches(msg, keys.TogglePlayback):
 			// TODO: need to receive event from the player in order to update the status message here
 			m.Player.TogglePlayback()
