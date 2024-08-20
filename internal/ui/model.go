@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"math/rand"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -60,7 +61,15 @@ func InitialModel(config config.Config) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	return func() tea.Msg {
+		go func() {
+			for update := range m.Player.PlaybackUpdate {
+				// TODO figure out how to pass the message to Update and get the view to refresh immediately
+				m.Update(update)
+			}
+		}()
+		return nil
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -74,24 +83,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Play):
 			track := m.Library.Tracks.SelectedItem().(audio.Track)
 			// TODO maybe use Tracks.Title as the now playing area and status for updates like "skipped", "queued" etc.
-			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
-			m.Player.Enqueue(track)
+			//m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
+			m.Player.ForcePlay(track)
 		case key.Matches(msg, m.keys.Shuffle):
 			// TODO: shuffling a second time should reset the queue
 			// TODO: shuffle all tracks and enqueue them
 			//track := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
 			track := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
 			track2 := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
-			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
+			//m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
 			m.Player.Enqueue(track)
 			m.Player.Enqueue(track2)
 		case key.Matches(msg, keys.TogglePlayback):
 			// TODO: need to receive event from the player in order to update the status message here
 			m.Player.TogglePlayback()
 		case key.Matches(msg, keys.Stop):
-			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Nothing playing"))
+			//m.Library.Tracks.NewStatusMessage(statusMessageStyle("Nothing playing"))
 			m.Player.Stop()
 		}
+	case audio.PlaybackUpdate:
+		//fmt.Printf("audio.Update: %+v\n", msg)
+		if msg.CurrentTrack.Title() == "" {
+			m.Library.Tracks.Title = "Nothing playing"
+		} else {
+			if msg.IsPlaying {
+				m.Library.Tracks.Title = "Playing: " + msg.CurrentTrack.Title()
+			} else {
+				m.Library.Tracks.Title = "Paused: " + msg.CurrentTrack.Title()
+			}
+		}
+		fmt.Println(m.Library.Tracks.Title)
 
 	}
 

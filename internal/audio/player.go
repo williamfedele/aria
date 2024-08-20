@@ -14,33 +14,44 @@ import (
 	"github.com/gopxl/beep/v2/wav"
 )
 
-type Control int
+// PlaybackControl is an enum to control the players audio playback
+type PlaybackControl int
 
 const (
-	Play Control = iota
+	Play PlaybackControl = iota
 	TogglePlayback
 	Stop
 	Next
 )
 
+// PlaybackUpdate is a struct to send updates to the UI
+type PlaybackUpdate struct {
+	CurrentTrack Track
+	IsPlaying    bool
+}
+
 // Player holds the control and feed channels to communicate with the DJ
 type Player struct {
-	Control   chan Control
-	Feed      chan Track
-	Queue     chan Track
-	Ready     chan bool
-	ctrl      *beep.Ctrl
-	isPlaying bool
-	mu        sync.Mutex
+	PlaybackUpdate  chan PlaybackUpdate
+	playbackControl chan PlaybackControl
+	trackFeed       chan Track
+	trackQueue      chan Track
+	readyToPlay     chan bool
+	queue           []Track
+	ctrl            *beep.Ctrl
+	isPlaying       bool
+	mu              sync.Mutex
 }
 
 func NewPlayer() *Player {
 	player := &Player{
-		Control: make(chan Control),
-		Feed:    make(chan Track),
-		Queue:   make(chan Track),
-		Ready:   make(chan bool),
-		ctrl:    nil,
+		playbackControl: make(chan PlaybackControl),
+		trackFeed:       make(chan Track),
+		trackQueue:      make(chan Track),
+		readyToPlay:     make(chan bool),
+		PlaybackUpdate:  make(chan PlaybackUpdate),
+		queue:           []Track{},
+		ctrl:            nil,
 	}
 
 	go DJ(player)
@@ -48,54 +59,52 @@ func NewPlayer() *Player {
 }
 
 func (p *Player) Play() {
-	p.Control <- Play
+	p.playbackControl <- Play
 }
 
 func (p *Player) TogglePlayback() {
-	p.Control <- TogglePlayback
+	p.playbackControl <- TogglePlayback
 }
 
 func (p *Player) Stop() {
-	p.Control <- Stop
+	p.playbackControl <- Stop
 }
 
-func (p *Player) Load(track Track) {
-	p.Feed <- track
+func (p *Player) ForcePlay(track Track) {
+	p.queue = []Track{track}
+	p.trackFeed <- track
 }
 
 func (p *Player) Enqueue(track Track) {
-	p.Queue <- track
+	p.trackQueue <- track
 }
 
 func (p *Player) Close() {
-	close(p.Control)
-	close(p.Feed)
+	close(p.playbackControl)
+	close(p.trackFeed)
 }
 
 func DJ(player *Player) error {
 
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
-	var queue []Track
-	done := make(chan struct{})
+	//done := make(chan struct{})
+	currentTrack := Track{}
 
 	for {
 		select {
-		case track := <-player.Queue:
+		case track := <-player.trackQueue:
 			// Add track to queue, if no track is playing, start the first track
-			queue = append(queue, track)
-			player.mu.Lock()
-			if !player.isPlaying && len(queue) > 0 {
+			if !player.isPlaying {
 				player.isPlaying = true
-				next := queue[0]
 				go func() {
-					player.Feed <- next
+					player.trackFeed <- track
 				}()
-				queue = queue[1:]
+			} else {
+				player.queue = append(player.queue, track)
 			}
-			player.mu.Unlock()
 
-		case track := <-player.Feed:
+		case track := <-player.trackFeed:
 			if streamer != nil {
 				speaker.Clear()
 			}
@@ -123,39 +132,61 @@ func DJ(player *Player) error {
 
 			speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 			player.ctrl = &beep.Ctrl{Streamer: streamer}
-			// TODO send update to UI to display next track
+			currentTrack = track
+
 			go func() {
-				player.Control <- Play
+				player.playbackControl <- Play
 			}()
 
-		case <-done:
-			// Track has finished playing, start the next track in the queue
-			if len(queue) > 0 {
-				track := queue[0]
-				queue = queue[1:]
-				go func() {
-					player.Feed <- track
-				}()
-			}
-		case cmd := <-player.Control:
+		// case <-done:
+		// 	// Track has finished playing, start the next track in the queue
+		// 	if len(queue) > 0 {
+		// 		track := queue[0]
+		// 		queue = queue[1:]
+		// 		go func() {
+		// 			player.trackFeed <- track
+		// 		}()
+		// 	}
+		case cmd := <-player.playbackControl:
 			switch cmd {
 			case Play:
+				// Start playback. Callback at the end of the track will start the next track in the queue
 				speaker.Lock()
 				player.ctrl.Paused = false
 				speaker.Unlock()
-				// TODO set isPlaying to false when the track finishes
 				speaker.Play(beep.Seq(player.ctrl, beep.Callback(func() {
-					done <- struct{}{}
+					// Track has finished playing, start the next track in the queue if there is one
+					if len(player.queue) > 0 {
+						track := player.queue[0]
+						player.queue = player.queue[1:]
+						go func() {
+							player.trackFeed <- track
+						}()
+					} else {
+						player.isPlaying = false
+						player.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: Track{}, IsPlaying: false}
+					}
 				})))
+				go func() {
+					//fmt.Println("Send update: ", currentTrack.Title())
+					player.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: currentTrack, IsPlaying: true}
+
+					//fmt.Println("Sent update: ", currentTrack.Title())
+				}()
 
 			case TogglePlayback:
+				// Swap play/pause state and update the UI
 				speaker.Lock()
 				player.ctrl.Paused = !player.ctrl.Paused
+				player.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: currentTrack, IsPlaying: !player.ctrl.Paused}
 				speaker.Unlock()
 			case Stop:
-				// TODO stop should clear the queue
+				// Stop all playback and clear the queue
 				speaker.Clear()
 				streamer.Seek(0)
+				player.isPlaying = false
+				player.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: Track{}, IsPlaying: false}
+				player.queue = []Track{}
 			}
 		}
 	}
