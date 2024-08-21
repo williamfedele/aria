@@ -75,7 +75,6 @@ func NewLibrary(libraryDir string) (*Library, error) {
 	}
 
 	list := list.New(items, list.NewDefaultDelegate(), 0, 0)
-	list.Title = "Library"
 
 	return &Library{Tracks: list}, nil
 

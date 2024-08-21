@@ -20,20 +20,20 @@ const (
 	Play PlaybackControl = iota
 	TogglePlayback
 	Stop
-	Next
+	Skip
 )
 
-// PlaybackUpdate is a struct to send updates to the UI
+// PlaybackUpdate is a struct to send playback updates to the UI as it changes
 type PlaybackUpdate struct {
 	CurrentTrack Track
 	IsPlaying    bool
 }
 
+// StatusMessage is a struct to send status messages to the UI in response to actions such as enqueueing a track
 type StatusMessage struct {
 	Message string
 }
 
-// Player holds the control and feed channels to communicate with the DJ
 type Player struct {
 	PlaybackUpdate  chan PlaybackUpdate
 	StatusMessage   chan StatusMessage
@@ -61,7 +61,7 @@ func NewPlayer() *Player {
 		isPlaying:       false,
 	}
 
-	go DJ(player)
+	go player.playLoop()
 	return player
 }
 
@@ -78,16 +78,27 @@ func (p *Player) Stop() {
 }
 
 func (p *Player) ForcePlay(track Track) {
-	p.queue = []Track{}
 	p.trackFeed <- track
 }
 
 func (p *Player) Enqueue(track Track) {
 	p.trackQueue <- track
+	p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Enqueued: %s", track.Title())}
 }
 
-func (p *Player) Next() {
-	p.playbackControl <- Next
+func (p *Player) EnqueueAll(tracks []Track) {
+	for _, track := range tracks {
+		p.Enqueue(track)
+	}
+	p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Enqueued %d tracks", len(tracks))}
+}
+
+func (p *Player) ClearQueue() {
+	p.queue = []Track{}
+}
+
+func (p *Player) Skip() {
+	p.playbackControl <- Skip
 }
 
 func (p *Player) Close() {
@@ -95,7 +106,7 @@ func (p *Player) Close() {
 	close(p.trackFeed)
 }
 
-func DJ(p *Player) error {
+func (p *Player) playLoop() error {
 
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
@@ -111,8 +122,6 @@ func DJ(p *Player) error {
 				}()
 			} else {
 				p.queue = append(p.queue, track)
-				// TODO causes deadlock
-				//p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Enqueued: %s", track.Title())}
 			}
 
 		case track := <-p.trackFeed:
@@ -159,7 +168,7 @@ func DJ(p *Player) error {
 				speaker.Unlock()
 				speaker.Play(beep.Seq(p.ctrl, beep.Callback(func() {
 					// Track has finished playing, start the next track in the queue if there is one
-					p.Next()
+					p.Skip()
 				})))
 
 				p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: p.currentTrack, IsPlaying: p.isPlaying}
@@ -175,13 +184,16 @@ func DJ(p *Player) error {
 			case Stop:
 				// Stop all playback and clear the queue
 				speaker.Clear()
-				streamer.Seek(0)
+				if streamer != nil {
+					streamer.Seek(0)
+				}
 				p.isPlaying = false
 				p.queue = []Track{}
+				p.currentTrack = Track{}
 
 				p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: Track{}, IsPlaying: p.isPlaying}
 
-			case Next:
+			case Skip:
 				// Stop the current track and start the next track in the queue
 				speaker.Clear()
 				if streamer != nil {

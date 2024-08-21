@@ -15,10 +15,10 @@ var (
 	appStyle   = lipgloss.NewStyle().Padding(1, 2)
 	titleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#222222")).
-			Background(lipgloss.Color("3")).
-			Padding(0, 2)
+			Background(lipgloss.Color("#FAD07B")).
+			Padding(0, 2).Bold(true)
 	statusMessageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("3")).
+				Foreground(lipgloss.Color("#7A85FA")).
 				Render
 )
 
@@ -35,26 +35,26 @@ func InitialModel(config config.Config) Model {
 		panic(err)
 	}
 
+	library.Tracks.Styles.Title = titleStyle
+	library.Tracks.Title = "Nothing playing"
+
 	m := Model{
 		Player:  audio.NewPlayer(),
 		Library: library,
 		keys:    keys,
 	}
 
-	// Setup custom keybinds
+	// Setup custom keybinds in the help section
 	d := list.NewDefaultDelegate()
-
 	d.ShortHelpFunc = func() []key.Binding {
 		return []key.Binding{keys.Play}
 	}
 	d.FullHelpFunc = func() [][]key.Binding {
-		return [][]key.Binding{{keys.Play, keys.TogglePlayback, keys.Stop, keys.Shuffle}}
+		return [][]key.Binding{{keys.Play, keys.TogglePlayback, keys.Stop}, {keys.Shuffle, keys.Enqueue, keys.Skip}}
 	}
 
+	d.Styles = list.DefaultItemStyles(NewDefaultItemStyles())
 	library.Tracks.SetDelegate(d)
-
-	library.Tracks.Styles.Title = titleStyle
-	m.Library.Tracks.NewStatusMessage(statusMessageStyle("Nothing playing"))
 
 	return m
 }
@@ -74,16 +74,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Play):
 			// Explicit track playing will clear the queue and immediately play
 			track := m.Library.Tracks.SelectedItem().(audio.Track)
+			m.Player.ClearQueue()
 			m.Player.ForcePlay(track)
+			// TODO: Should the rest of the tracks be enqueues to autoplay?
 		case key.Matches(msg, m.keys.Shuffle):
-			// TODO: shuffling a second time should reset the queue
-			// TODO: shuffle all tracks and enqueue them
-			//track := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
-			track := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
-			track2 := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
-			//m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
-			m.Player.Enqueue(track)
-			m.Player.Enqueue(track2)
+			// Reset the queue and stop playback for a fresh start
+			m.Player.ClearQueue()
+			m.Player.Stop()
+
+			// Shuffle the tracks
+			trackItems := m.Library.Tracks.Items()
+			// This causes the list of items to be shuffled in the UI
+			// Feature???
+			rand.Shuffle(len(trackItems), func(i, j int) {
+				trackItems[i], trackItems[j] = trackItems[j], trackItems[i]
+			})
+			var tracks []audio.Track
+			for _, item := range trackItems {
+				tracks = append(tracks, item.(audio.Track))
+			}
+			go func() {
+				m.Player.EnqueueAll(tracks)
+			}()
+
 		case key.Matches(msg, keys.TogglePlayback):
 			m.Player.TogglePlayback()
 		case key.Matches(msg, keys.Stop):
@@ -92,7 +105,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			track := m.Library.Tracks.SelectedItem().(audio.Track)
 			m.Player.Enqueue(track)
 		case key.Matches(msg, keys.Skip):
-			m.Player.Next()
+			m.Player.Skip()
 
 		}
 	case audio.PlaybackUpdate:
@@ -109,6 +122,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.ListenForUpdates()
 	case audio.StatusMessage:
 		m.Library.Tracks.NewStatusMessage(statusMessageStyle(msg.Message))
+		// Keep listening for playback updates
+		return m, m.ListenForUpdates()
 	}
 
 	var cmd tea.Cmd
@@ -123,12 +138,11 @@ func (m Model) View() string {
 // Waits for messages from the player about any type of update
 func (m Model) ListenForUpdates() tea.Cmd {
 	return func() tea.Msg {
-		return <-m.Player.PlaybackUpdate
-		// select {
-		// case msg := <-m.Player.StatusMessage:
-		// 	return msg
-		// case msg := <-m.Player.PlaybackUpdate:
-		// 	return msg
-		// }
+		select {
+		case msg := <-m.Player.StatusMessage:
+			return msg
+		case msg := <-m.Player.PlaybackUpdate:
+			return msg
+		}
 	}
 }
