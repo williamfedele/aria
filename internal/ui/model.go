@@ -83,14 +83,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Player.Stop()
 
 			// Shuffle the tracks
-			trackItems := m.Library.Tracks.Items()
-			// This causes the list of items to be shuffled in the UI
-			// Feature???
-			rand.Shuffle(len(trackItems), func(i, j int) {
-				trackItems[i], trackItems[j] = trackItems[j], trackItems[i]
+			shuffledTracks := make([]list.Item, len(m.Library.Tracks.Items()))
+			copy(shuffledTracks, m.Library.Tracks.Items())
+			rand.Shuffle(len(shuffledTracks), func(i, j int) {
+				shuffledTracks[i], shuffledTracks[j] = shuffledTracks[j], shuffledTracks[i]
 			})
 			var tracks []audio.Track
-			for _, item := range trackItems {
+			for _, item := range shuffledTracks {
 				tracks = append(tracks, item.(audio.Track))
 			}
 			go func() {
@@ -113,9 +112,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Library.Tracks.Title = "Nothing playing"
 		} else {
 			if msg.IsPlaying {
-				m.Library.Tracks.Title = "Playing: " + msg.CurrentTrack.Title()
+				m.Library.Tracks.Title = "Playing: " + msg.CurrentTrack.ShortString()
 			} else {
-				m.Library.Tracks.Title = "Paused: " + msg.CurrentTrack.Title()
+				m.Library.Tracks.Title = "Paused: " + msg.CurrentTrack.ShortString()
 			}
 		}
 		// Keep listening for playback updates

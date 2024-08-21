@@ -33,6 +33,10 @@ func (t Track) FilterValue() string {
 	return t.Title()
 }
 
+func (t Track) ShortString() string {
+	return fmt.Sprintf("%s / %s", t.Artist(), t.Title())
+}
+
 func (t Track) String() string {
 	return fmt.Sprintf("%s / %s / %s", t.Artist(), t.Album(), t.Title())
 }
