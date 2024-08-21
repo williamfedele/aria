@@ -33,6 +33,10 @@ func (t Track) FilterValue() string {
 	return t.Title()
 }
 
+func (t Track) ShortString() string {
+	return fmt.Sprintf("%s / %s", t.Artist(), t.Title())
+}
+
 func (t Track) String() string {
 	return fmt.Sprintf("%s / %s / %s", t.Artist(), t.Album(), t.Title())
 }
@@ -75,7 +79,6 @@ func NewLibrary(libraryDir string) (*Library, error) {
 	}
 
 	list := list.New(items, list.NewDefaultDelegate(), 0, 0)
-	list.Title = "Library"
 
 	return &Library{Tracks: list}, nil
 

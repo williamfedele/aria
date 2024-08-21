@@ -15,10 +15,10 @@ var (
 	appStyle   = lipgloss.NewStyle().Padding(1, 2)
 	titleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#222222")).
-			Background(lipgloss.Color("3")).
-			Padding(0, 2)
+			Background(lipgloss.Color("#FAD07B")).
+			Padding(0, 2).Bold(true)
 	statusMessageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("3")).
+				Foreground(lipgloss.Color("#7A85FA")).
 				Render
 )
 
@@ -35,32 +35,32 @@ func InitialModel(config config.Config) Model {
 		panic(err)
 	}
 
+	library.Tracks.Styles.Title = titleStyle
+	library.Tracks.Title = "Nothing playing"
+
 	m := Model{
 		Player:  audio.NewPlayer(),
 		Library: library,
 		keys:    keys,
 	}
 
-	// Setup custom keybinds
+	// Setup custom keybinds in the help section
 	d := list.NewDefaultDelegate()
-
 	d.ShortHelpFunc = func() []key.Binding {
 		return []key.Binding{keys.Play}
 	}
 	d.FullHelpFunc = func() [][]key.Binding {
-		return [][]key.Binding{{keys.Play, keys.TogglePlayback, keys.Stop, keys.Shuffle}}
+		return [][]key.Binding{{keys.Play, keys.TogglePlayback, keys.Stop}, {keys.Shuffle, keys.Enqueue, keys.Skip}}
 	}
 
+	d.Styles = list.DefaultItemStyles(NewDefaultItemStyles())
 	library.Tracks.SetDelegate(d)
-
-	library.Tracks.Styles.Title = titleStyle
-	m.Library.Tracks.NewStatusMessage(statusMessageStyle("Nothing playing"))
 
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	return m.ListenForUpdates()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -72,23 +72,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Play):
+			// Explicit track playing will clear the queue and immediately play
 			track := m.Library.Tracks.SelectedItem().(audio.Track)
-			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
-			m.Player.Load(track)
-			m.Player.Play()
+			m.Player.ClearQueue()
+			m.Player.ForcePlay(track)
+			// TODO: Should the rest of the tracks be enqueues to autoplay?
 		case key.Matches(msg, m.keys.Shuffle):
-			track := m.Library.Tracks.Items()[rand.Intn(len(m.Library.Tracks.Items()))].(audio.Track)
-			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
-			m.Player.Load(track)
-			m.Player.Play()
+			// Reset the queue and stop playback for a fresh start
+			m.Player.ClearQueue()
+			m.Player.Stop()
+
+			// Shuffle the tracks
+			shuffledTracks := make([]list.Item, len(m.Library.Tracks.Items()))
+			copy(shuffledTracks, m.Library.Tracks.Items())
+			rand.Shuffle(len(shuffledTracks), func(i, j int) {
+				shuffledTracks[i], shuffledTracks[j] = shuffledTracks[j], shuffledTracks[i]
+			})
+			var tracks []audio.Track
+			for _, item := range shuffledTracks {
+				tracks = append(tracks, item.(audio.Track))
+			}
+			go func() {
+				m.Player.EnqueueAll(tracks)
+			}()
+
 		case key.Matches(msg, keys.TogglePlayback):
-			// TODO: need to receive event from the player in order to update the status message here
 			m.Player.TogglePlayback()
 		case key.Matches(msg, keys.Stop):
-			m.Library.Tracks.NewStatusMessage(statusMessageStyle("Nothing playing"))
 			m.Player.Stop()
-		}
+		case key.Matches(msg, keys.Enqueue):
+			track := m.Library.Tracks.SelectedItem().(audio.Track)
+			m.Player.Enqueue(track)
+		case key.Matches(msg, keys.Skip):
+			m.Player.Skip()
 
+		}
+	case audio.PlaybackUpdate:
+		if msg.CurrentTrack.Title() == "" {
+			m.Library.Tracks.Title = "Nothing playing"
+		} else {
+			if msg.IsPlaying {
+				m.Library.Tracks.Title = "Playing: " + msg.CurrentTrack.ShortString()
+			} else {
+				m.Library.Tracks.Title = "Paused: " + msg.CurrentTrack.ShortString()
+			}
+		}
+		// Keep listening for playback updates
+		return m, m.ListenForUpdates()
+	case audio.StatusMessage:
+		m.Library.Tracks.NewStatusMessage(statusMessageStyle(msg.Message))
+		// Keep listening for playback updates
+		return m, m.ListenForUpdates()
 	}
 
 	var cmd tea.Cmd
@@ -98,4 +132,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	return appStyle.Render(m.Library.Tracks.View())
+}
+
+// Waits for messages from the player about any type of update
+func (m Model) ListenForUpdates() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case msg := <-m.Player.StatusMessage:
+			return msg
+		case msg := <-m.Player.PlaybackUpdate:
+			return msg
+		}
+	}
 }
