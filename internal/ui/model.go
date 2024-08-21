@@ -28,11 +28,11 @@ type Model struct {
 	keys    keyMap
 }
 
-func InitialModel(config config.Config) Model {
+func InitialModel(config config.Config) (Model, error) {
 
 	library, err := audio.NewLibrary(config.LibraryDir)
 	if err != nil {
-		panic(err)
+		return Model{}, err
 	}
 
 	library.Tracks.Styles.Title = titleStyle
@@ -56,7 +56,7 @@ func InitialModel(config config.Config) Model {
 	d.Styles = list.DefaultItemStyles(NewDefaultItemStyles())
 	library.Tracks.SetDelegate(d)
 
-	return m
+	return m, nil
 }
 
 func (m Model) Init() tea.Cmd {
