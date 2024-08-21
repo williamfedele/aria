@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"math/rand"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -61,15 +60,7 @@ func InitialModel(config config.Config) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return func() tea.Msg {
-		go func() {
-			for update := range m.Player.PlaybackUpdate {
-				// TODO figure out how to pass the message to Update and get the view to refresh immediately
-				m.Update(update)
-			}
-		}()
-		return nil
-	}
+	return m.ListenForUpdates()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -81,9 +72,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Play):
+			// Explicit track playing will clear the queue and immediately play
 			track := m.Library.Tracks.SelectedItem().(audio.Track)
-			// TODO maybe use Tracks.Title as the now playing area and status for updates like "skipped", "queued" etc.
-			//m.Library.Tracks.NewStatusMessage(statusMessageStyle("Playing: " + track.Title()))
 			m.Player.ForcePlay(track)
 		case key.Matches(msg, m.keys.Shuffle):
 			// TODO: shuffling a second time should reset the queue
@@ -95,14 +85,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Player.Enqueue(track)
 			m.Player.Enqueue(track2)
 		case key.Matches(msg, keys.TogglePlayback):
-			// TODO: need to receive event from the player in order to update the status message here
 			m.Player.TogglePlayback()
 		case key.Matches(msg, keys.Stop):
-			//m.Library.Tracks.NewStatusMessage(statusMessageStyle("Nothing playing"))
 			m.Player.Stop()
+		case key.Matches(msg, keys.Enqueue):
+			track := m.Library.Tracks.SelectedItem().(audio.Track)
+			m.Player.Enqueue(track)
+		case key.Matches(msg, keys.Skip):
+			m.Player.Next()
+
 		}
 	case audio.PlaybackUpdate:
-		//fmt.Printf("audio.Update: %+v\n", msg)
 		if msg.CurrentTrack.Title() == "" {
 			m.Library.Tracks.Title = "Nothing playing"
 		} else {
@@ -112,8 +105,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Library.Tracks.Title = "Paused: " + msg.CurrentTrack.Title()
 			}
 		}
-		fmt.Println(m.Library.Tracks.Title)
-
+		// Keep listening for playback updates
+		return m, m.ListenForUpdates()
+	case audio.StatusMessage:
+		m.Library.Tracks.NewStatusMessage(statusMessageStyle(msg.Message))
 	}
 
 	var cmd tea.Cmd
@@ -123,4 +118,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	return appStyle.Render(m.Library.Tracks.View())
+}
+
+// Waits for messages from the player about any type of update
+func (m Model) ListenForUpdates() tea.Cmd {
+	return func() tea.Msg {
+		return <-m.Player.PlaybackUpdate
+		// select {
+		// case msg := <-m.Player.StatusMessage:
+		// 	return msg
+		// case msg := <-m.Player.PlaybackUpdate:
+		// 	return msg
+		// }
+	}
 }

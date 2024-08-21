@@ -7,6 +7,8 @@ type keyMap struct {
 	Shuffle        key.Binding
 	TogglePlayback key.Binding
 	Stop           key.Binding
+	Enqueue        key.Binding
+	Skip           key.Binding
 }
 
 var keys = keyMap{
@@ -19,11 +21,19 @@ var keys = keyMap{
 		key.WithHelp("s", "shuffle"),
 	),
 	TogglePlayback: key.NewBinding(
-		key.WithKeys("p"),
-		key.WithHelp("p", "toggle playback"),
+		key.WithKeys(" "),
+		key.WithHelp(" ", "toggle playback"),
 	),
 	Stop: key.NewBinding(
 		key.WithKeys("x"),
 		key.WithHelp("x", "stop playback"),
+	),
+	Enqueue: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "add to queue"),
+	),
+	Skip: key.NewBinding(
+		key.WithKeys("n"),
+		key.WithHelp("n", "skip track"),
 	),
 }
