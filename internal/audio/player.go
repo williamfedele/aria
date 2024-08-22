@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gopxl/beep/v2"
+	"github.com/gopxl/beep/v2/effects"
 	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/speaker"
@@ -34,35 +35,60 @@ type StatusMessage struct {
 	Message string
 }
 
+type audioSettings struct {
+	streamer beep.StreamSeekCloser
+	ctrl     *beep.Ctrl
+	volume   *effects.Volume
+}
+
 type Player struct {
-	PlaybackUpdate  chan PlaybackUpdate
-	StatusMessage   chan StatusMessage
+	// Channels for sending updates to the UI
+	PlaybackUpdate chan PlaybackUpdate
+	StatusMessage  chan StatusMessage
+
+	// Channels for controlling the player
 	playbackControl chan PlaybackControl
 	trackFeed       chan Track
 	trackQueue      chan Track
-	readyToPlay     chan bool
-	currentTrack    Track
-	queue           []Track
-	ctrl            *beep.Ctrl
-	isPlaying       bool
+
+	// Player state
+	currentTrack  Track
+	queue         []Track
+	audioSettings *audioSettings
+	volumeLevel   float64
+	isPlaying     bool
 }
 
 func NewPlayer() *Player {
 	player := &Player{
-		PlaybackUpdate:  make(chan PlaybackUpdate),
-		StatusMessage:   make(chan StatusMessage),
+		PlaybackUpdate: make(chan PlaybackUpdate),
+		StatusMessage:  make(chan StatusMessage),
+
 		playbackControl: make(chan PlaybackControl),
 		trackFeed:       make(chan Track),
 		trackQueue:      make(chan Track),
-		readyToPlay:     make(chan bool),
-		currentTrack:    Track{},
-		queue:           []Track{},
-		ctrl:            nil,
-		isPlaying:       false,
+
+		currentTrack:  Track{},
+		queue:         []Track{},
+		audioSettings: nil,
+		volumeLevel:   0,
+		isPlaying:     false,
 	}
 
 	go player.playLoop()
 	return player
+}
+
+func (p *Player) updateAudioSettings(streamer beep.StreamSeekCloser, format beep.Format) {
+	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+	ctrl := &beep.Ctrl{Streamer: streamer}
+	volume := &effects.Volume{Streamer: ctrl, Base: 2, Volume: p.volumeLevel}
+
+	p.audioSettings = &audioSettings{
+		streamer: streamer,
+		ctrl:     ctrl,
+		volume:   volume,
+	}
 }
 
 func (p *Player) Play() {
@@ -106,10 +132,25 @@ func (p *Player) Close() {
 	close(p.trackFeed)
 }
 
-func (p *Player) playLoop() error {
+func (p *Player) VolumeUp() {
+	p.volumeLevel += 0.5
+	if p.audioSettings != nil {
+		p.audioSettings.volume.Volume = p.volumeLevel
+	}
 
-	var streamer beep.StreamSeekCloser
-	var format beep.Format
+	p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Volume: %.1f", p.volumeLevel)}
+}
+
+func (p *Player) VolumeDown() {
+	p.volumeLevel -= 0.5
+	if p.audioSettings != nil {
+		p.audioSettings.volume.Volume = p.volumeLevel
+	}
+
+	p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Volume: %.1f", p.volumeLevel)}
+}
+
+func (p *Player) playLoop() error {
 
 	for {
 		select {
@@ -125,7 +166,7 @@ func (p *Player) playLoop() error {
 			}
 
 		case track := <-p.trackFeed:
-			if streamer != nil {
+			if p.audioSettings != nil && p.audioSettings.streamer != nil {
 				speaker.Clear()
 			}
 
@@ -133,6 +174,10 @@ func (p *Player) playLoop() error {
 			if err != nil {
 				return err
 			}
+
+			var streamer beep.StreamSeekCloser
+			var format beep.Format
+
 			switch track.Format() {
 			case FLAC:
 				streamer, format, err = flac.Decode(f)
@@ -150,8 +195,7 @@ func (p *Player) playLoop() error {
 			}
 			defer streamer.Close()
 
-			speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-			p.ctrl = &beep.Ctrl{Streamer: streamer}
+			p.updateAudioSettings(streamer, format)
 			p.currentTrack = track
 
 			go func() {
@@ -163,10 +207,10 @@ func (p *Player) playLoop() error {
 			case Play:
 				// Start playback. Callback at the end of the track will start the next track in the queue
 				speaker.Lock()
-				p.ctrl.Paused = false
+				p.audioSettings.ctrl.Paused = false
 				p.isPlaying = true
 				speaker.Unlock()
-				speaker.Play(beep.Seq(p.ctrl, beep.Callback(func() {
+				speaker.Play(beep.Seq(p.audioSettings.volume, beep.Callback(func() {
 					// Track has finished playing, start the next track in the queue if there is one
 					p.Skip()
 				})))
@@ -176,16 +220,16 @@ func (p *Player) playLoop() error {
 			case TogglePlayback:
 				// Swap play/pause state and update the UI
 				speaker.Lock()
-				p.ctrl.Paused = !p.ctrl.Paused
+				p.audioSettings.ctrl.Paused = !p.audioSettings.ctrl.Paused
 				speaker.Unlock()
 
-				p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: p.currentTrack, IsPlaying: !p.ctrl.Paused}
+				p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: p.currentTrack, IsPlaying: !p.audioSettings.ctrl.Paused}
 
 			case Stop:
 				// Stop all playback and clear the queue
 				speaker.Clear()
-				if streamer != nil {
-					streamer.Seek(0)
+				if p.audioSettings != nil && p.audioSettings.streamer != nil {
+					p.audioSettings.streamer.Seek(0)
 				}
 				p.isPlaying = false
 				p.queue = []Track{}
@@ -196,8 +240,8 @@ func (p *Player) playLoop() error {
 			case Skip:
 				// Stop the current track and start the next track in the queue
 				speaker.Clear()
-				if streamer != nil {
-					streamer.Seek(0)
+				if p.audioSettings != nil && p.audioSettings.streamer != nil {
+					p.audioSettings.streamer.Seek(0)
 				}
 
 				p.isPlaying = false

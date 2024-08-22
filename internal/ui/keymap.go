@@ -9,6 +9,8 @@ type keyMap struct {
 	Stop           key.Binding
 	Enqueue        key.Binding
 	Skip           key.Binding
+	VolumeUp       key.Binding
+	VolumeDown     key.Binding
 }
 
 var keys = keyMap{
@@ -35,5 +37,13 @@ var keys = keyMap{
 	Skip: key.NewBinding(
 		key.WithKeys("s"),
 		key.WithHelp("s", "skip track"),
+	),
+	VolumeUp: key.NewBinding(
+		key.WithKeys("]"),
+		key.WithHelp("]", "volume up"),
+	),
+	VolumeDown: key.NewBinding(
+		key.WithKeys("["),
+		key.WithHelp("[", "volume down"),
 	),
 }

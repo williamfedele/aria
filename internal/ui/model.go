@@ -105,6 +105,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Player.Enqueue(track)
 		case key.Matches(msg, keys.Skip):
 			m.Player.Skip()
+		case key.Matches(msg, keys.VolumeUp):
+			m.Player.VolumeUp()
+		case key.Matches(msg, keys.VolumeDown):
+			m.Player.VolumeDown()
 
 		}
 	case audio.PlaybackUpdate:
