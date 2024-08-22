@@ -1,4 +1,4 @@
-module github.com/williamfedele/chime
+module github.com/williamfedele/aria
 
 go 1.22.2
 

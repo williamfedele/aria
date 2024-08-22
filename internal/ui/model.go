@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/williamfedele/chime/internal/audio"
-	"github.com/williamfedele/chime/internal/config"
+	"github.com/williamfedele/aria/internal/audio"
+	"github.com/williamfedele/aria/internal/config"
 )
 
 var (

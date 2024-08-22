@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/williamfedele/chime/internal/config"
-	"github.com/williamfedele/chime/internal/ui"
+	"github.com/williamfedele/aria/internal/config"
+	"github.com/williamfedele/aria/internal/ui"
 )
 
 func main() {
