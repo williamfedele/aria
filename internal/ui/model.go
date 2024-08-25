@@ -50,7 +50,7 @@ func InitialModel(config config.Config) (Model, error) {
 		return []key.Binding{keys.Play}
 	}
 	d.FullHelpFunc = func() [][]key.Binding {
-		return [][]key.Binding{{keys.Play, keys.TogglePlayback, keys.Stop}, {keys.Shuffle, keys.Enqueue, keys.Skip}}
+		return [][]key.Binding{{keys.Play, keys.TogglePlayback, keys.Stop, keys.Shuffle, keys.Enqueue}, {keys.Next, keys.Previous}, {keys.VolumeUp, keys.VolumeDown}}
 	}
 
 	d.Styles = list.DefaultItemStyles(NewDefaultItemStyles())
@@ -92,9 +92,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, item := range shuffledTracks {
 				tracks = append(tracks, item.(audio.Track))
 			}
-			go func() {
-				m.Player.EnqueueAll(tracks)
-			}()
+			m.Player.EnqueueAll(tracks)
 
 		case key.Matches(msg, keys.TogglePlayback):
 			m.Player.TogglePlayback()
@@ -103,8 +101,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Enqueue):
 			track := m.Library.Tracks.SelectedItem().(audio.Track)
 			m.Player.Enqueue(track)
-		case key.Matches(msg, keys.Skip):
-			m.Player.Skip()
+		case key.Matches(msg, keys.Next):
+			m.Player.Next()
+		case key.Matches(msg, keys.Previous):
+			m.Player.Previous()
 		case key.Matches(msg, keys.VolumeUp):
 			m.Player.VolumeUp()
 		case key.Matches(msg, keys.VolumeDown):

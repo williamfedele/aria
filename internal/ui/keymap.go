@@ -8,7 +8,8 @@ type keyMap struct {
 	TogglePlayback key.Binding
 	Stop           key.Binding
 	Enqueue        key.Binding
-	Skip           key.Binding
+	Next           key.Binding
+	Previous       key.Binding
 	VolumeUp       key.Binding
 	VolumeDown     key.Binding
 }
@@ -34,9 +35,13 @@ var keys = keyMap{
 		key.WithKeys("a"),
 		key.WithHelp("a", "add to queue"),
 	),
-	Skip: key.NewBinding(
-		key.WithKeys("s"),
-		key.WithHelp("s", "skip track"),
+	Next: key.NewBinding(
+		key.WithKeys(">"),
+		key.WithHelp(">", "skip track"),
+	),
+	Previous: key.NewBinding(
+		key.WithKeys("<"),
+		key.WithHelp("<", "previous track"),
 	),
 	VolumeUp: key.NewBinding(
 		key.WithKeys("]"),

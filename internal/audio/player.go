@@ -14,16 +14,6 @@ import (
 	"github.com/gopxl/beep/v2/wav"
 )
 
-// PlaybackControl is an enum to control the players audio playback
-type PlaybackControl int
-
-const (
-	Play PlaybackControl = iota
-	TogglePlayback
-	Stop
-	Skip
-)
-
 // PlaybackUpdate is a struct to send playback updates to the UI as it changes
 type PlaybackUpdate struct {
 	CurrentTrack Track
@@ -46,17 +36,11 @@ type Player struct {
 	PlaybackUpdate chan PlaybackUpdate
 	StatusMessage  chan StatusMessage
 
-	// Channels for controlling the player
-	playbackControl chan PlaybackControl
-	trackFeed       chan Track
-	trackQueue      chan Track
-
 	// Player state
-	currentTrack  Track
 	queue         []Track
+	queuePosition int
 	audioSettings *audioSettings
 	volumeLevel   float64
-	isPlaying     bool
 }
 
 func NewPlayer() *Player {
@@ -64,18 +48,12 @@ func NewPlayer() *Player {
 		PlaybackUpdate: make(chan PlaybackUpdate),
 		StatusMessage:  make(chan StatusMessage),
 
-		playbackControl: make(chan PlaybackControl),
-		trackFeed:       make(chan Track),
-		trackQueue:      make(chan Track),
-
-		currentTrack:  Track{},
 		queue:         []Track{},
+		queuePosition: 0,
 		audioSettings: nil,
 		volumeLevel:   0,
-		isPlaying:     false,
 	}
 
-	go player.playLoop()
 	return player
 }
 
@@ -92,44 +70,105 @@ func (p *Player) updateAudioSettings(streamer beep.StreamSeekCloser, format beep
 }
 
 func (p *Player) Play() {
-	p.playbackControl <- Play
-}
+	// Start playback. Callback at the end of the track will start the next track in the queue
 
-func (p *Player) TogglePlayback() {
-	p.playbackControl <- TogglePlayback
-}
+	if len(p.queue) == 0 {
+		p.sendStatusMessage("Queue is empty")
+		return
+	}
 
-func (p *Player) Stop() {
-	p.playbackControl <- Stop
+	if p.audioSettings != nil &&
+		p.audioSettings.streamer != nil {
+
+		speaker.Clear()
+	}
+
+	streamer, format, err := decodeTrack(p.queue[p.queuePosition])
+	if err != nil {
+		p.sendStatusMessage(fmt.Sprintf("Error decoding track: %s", err))
+		return
+	}
+	p.updateAudioSettings(streamer, format)
+
+	speaker.Lock()
+	p.audioSettings.ctrl.Paused = false
+	speaker.Unlock()
+
+	speaker.Play(beep.Seq(p.audioSettings.volume, beep.Callback(func() {
+		p.Next()
+	})))
+
+	p.sendPlaybackUpdate()
 }
 
 func (p *Player) ForcePlay(track Track) {
-	p.trackFeed <- track
+	p.ClearQueue()
+	p.queue = append(p.queue, track)
+	p.Play()
+}
+
+func (p *Player) Next() {
+	if p.queuePosition < len(p.queue)-1 {
+		p.queuePosition++
+		p.Play()
+	} else {
+		p.Stop()
+	}
+}
+func (p *Player) Previous() {
+	// If the current track is more than 5 seconds in, restart the track
+	if p.audioSettings != nil &&
+		p.audioSettings.streamer != nil &&
+		p.queuePosition > 0 &&
+		(float64(p.audioSettings.streamer.Position())/float64(p.audioSettings.streamer.Len()) < 0.10) {
+
+		p.queuePosition--
+	}
+	p.Play()
 }
 
 func (p *Player) Enqueue(track Track) {
-	p.trackQueue <- track
-	p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Enqueued: %s", track.Title())}
+	p.queue = append(p.queue, track)
+	if !p.isPlaying() {
+		p.Play()
+	} else {
+		p.sendStatusMessage(fmt.Sprintf("Enqueued: %s", track.Title()))
+	}
 }
 
 func (p *Player) EnqueueAll(tracks []Track) {
-	for _, track := range tracks {
-		p.Enqueue(track)
+	p.queue = append(p.queue, tracks...)
+	if !p.isPlaying() {
+		p.Play()
 	}
-	p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Enqueued %d tracks", len(tracks))}
+	p.sendStatusMessage(fmt.Sprintf("Enqueued %d tracks", len(tracks)))
+}
+
+func (p *Player) Stop() {
+	// Stop all playback and clear the queue
+	speaker.Clear()
+	p.audioSettings = nil
+
+	p.ClearQueue()
+	p.sendPlaybackUpdate()
+}
+
+func (p *Player) TogglePlayback() {
+	// Swap play/pause state and update the UI
+	if p.audioSettings == nil {
+		return
+	}
+
+	speaker.Lock()
+	p.audioSettings.ctrl.Paused = !p.audioSettings.ctrl.Paused
+	speaker.Unlock()
+
+	p.sendPlaybackUpdate()
 }
 
 func (p *Player) ClearQueue() {
 	p.queue = []Track{}
-}
-
-func (p *Player) Skip() {
-	p.playbackControl <- Skip
-}
-
-func (p *Player) Close() {
-	close(p.playbackControl)
-	close(p.trackFeed)
+	p.queuePosition = 0
 }
 
 func (p *Player) VolumeUp() {
@@ -138,7 +177,7 @@ func (p *Player) VolumeUp() {
 		p.audioSettings.volume.Volume = p.volumeLevel
 	}
 
-	p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Volume: %.1f", p.volumeLevel)}
+	p.sendStatusMessage(fmt.Sprintf("Volume: %.1f", p.volumeLevel))
 }
 
 func (p *Player) VolumeDown() {
@@ -147,115 +186,56 @@ func (p *Player) VolumeDown() {
 		p.audioSettings.volume.Volume = p.volumeLevel
 	}
 
-	p.StatusMessage <- StatusMessage{Message: fmt.Sprintf("Volume: %.1f", p.volumeLevel)}
+	p.sendStatusMessage(fmt.Sprintf("Volume: %.1f", p.volumeLevel))
 }
 
-func (p *Player) playLoop() error {
-
-	for {
-		select {
-		case track := <-p.trackQueue:
-			// Add track to queue, if no track is playing, start the first track
-			if !p.isPlaying {
-				p.isPlaying = true
-				go func() {
-					p.trackFeed <- track
-				}()
-			} else {
-				p.queue = append(p.queue, track)
-			}
-
-		case track := <-p.trackFeed:
-			if p.audioSettings != nil && p.audioSettings.streamer != nil {
-				speaker.Clear()
-			}
-
-			f, err := os.Open(track.Path())
-			if err != nil {
-				return err
-			}
-
-			var streamer beep.StreamSeekCloser
-			var format beep.Format
-
-			switch track.Format() {
-			case FLAC:
-				streamer, format, err = flac.Decode(f)
-			case MP3:
-				streamer, format, err = mp3.Decode(f)
-			case WAV:
-				streamer, format, err = wav.Decode(f)
-			case OGG:
-				streamer, format, err = vorbis.Decode(f)
-			default:
-				err = fmt.Errorf("unsupported format: %s", track.Path())
-			}
-			if err != nil {
-				return err
-			}
-			defer streamer.Close()
-
-			p.updateAudioSettings(streamer, format)
-			p.currentTrack = track
-
-			go func() {
-				p.Play()
-			}()
-
-		case cmd := <-p.playbackControl:
-			switch cmd {
-			case Play:
-				// Start playback. Callback at the end of the track will start the next track in the queue
-				speaker.Lock()
-				p.audioSettings.ctrl.Paused = false
-				p.isPlaying = true
-				speaker.Unlock()
-				speaker.Play(beep.Seq(p.audioSettings.volume, beep.Callback(func() {
-					// Track has finished playing, start the next track in the queue if there is one
-					p.Skip()
-				})))
-
-				p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: p.currentTrack, IsPlaying: p.isPlaying}
-
-			case TogglePlayback:
-				// Swap play/pause state and update the UI
-				speaker.Lock()
-				p.audioSettings.ctrl.Paused = !p.audioSettings.ctrl.Paused
-				speaker.Unlock()
-
-				p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: p.currentTrack, IsPlaying: !p.audioSettings.ctrl.Paused}
-
-			case Stop:
-				// Stop all playback and clear the queue
-				speaker.Clear()
-				if p.audioSettings != nil && p.audioSettings.streamer != nil {
-					p.audioSettings.streamer.Seek(0)
-				}
-				p.isPlaying = false
-				p.queue = []Track{}
-				p.currentTrack = Track{}
-
-				p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: Track{}, IsPlaying: p.isPlaying}
-
-			case Skip:
-				// Stop the current track and start the next track in the queue
-				speaker.Clear()
-				if p.audioSettings != nil && p.audioSettings.streamer != nil {
-					p.audioSettings.streamer.Seek(0)
-				}
-
-				p.isPlaying = false
-				if len(p.queue) > 0 {
-					track := p.queue[0]
-					p.queue = p.queue[1:]
-					go func() {
-						p.trackFeed <- track
-					}()
-				} else {
-					p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: Track{}, IsPlaying: p.isPlaying}
-				}
-
-			}
-		}
+func (p *Player) getCurrentPlaying() Track {
+	if !p.isPlaying() {
+		return Track{}
 	}
+	return p.queue[p.queuePosition]
+}
+
+func (p *Player) isPlaying() bool {
+	return p.audioSettings != nil && !p.audioSettings.ctrl.Paused
+}
+
+func (p *Player) sendStatusMessage(message string) {
+	go func() {
+		p.StatusMessage <- StatusMessage{Message: message}
+	}()
+}
+
+func (p *Player) sendPlaybackUpdate() {
+	go func() {
+		p.PlaybackUpdate <- PlaybackUpdate{CurrentTrack: p.getCurrentPlaying(), IsPlaying: p.isPlaying()}
+	}()
+}
+
+func decodeTrack(track Track) (beep.StreamSeekCloser, beep.Format, error) {
+	f, err := os.Open(track.Path())
+	if err != nil {
+		return nil, beep.Format{}, err
+	}
+
+	var streamer beep.StreamSeekCloser
+	var format beep.Format
+
+	switch track.Format() {
+	case FLAC:
+		streamer, format, err = flac.Decode(f)
+	case MP3:
+		streamer, format, err = mp3.Decode(f)
+	case WAV:
+		streamer, format, err = wav.Decode(f)
+	case OGG:
+		streamer, format, err = vorbis.Decode(f)
+	default:
+		err = fmt.Errorf("unsupported format: %s", track.Path())
+	}
+	if err != nil {
+		return nil, beep.Format{}, err
+	}
+
+	return streamer, format, nil
 }
