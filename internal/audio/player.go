@@ -95,7 +95,7 @@ func (p *Player) Play() {
 	speaker.Unlock()
 
 	speaker.Play(beep.Seq(p.audioSettings.volume, beep.Callback(func() {
-		p.Next()
+		go p.Next()
 	})))
 
 	p.sendPlaybackUpdate()
